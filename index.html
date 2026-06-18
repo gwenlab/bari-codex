@@ -328,9 +328,9 @@ body{font-family:'Lato',sans-serif;background:var(--cream);color:var(--ink);min-
 .fab:hover{transform:scale(1.1)!important}
 @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
 .fab .fbadge{position:absolute;top:-3px;right:-3px;background:var(--rose);color:white;font-size:.5rem;font-weight:700;border-radius:999px;min-width:15px;height:15px;display:none;align-items:center;justify-content:center;padding:0 .18rem;border:2px solid white}
-.coach{position:fixed;bottom:4.2rem;right:.9rem;z-index:501;width:310px;max-height:460px;background:var(--cream);border:2px solid var(--border);border-radius:16px;box-shadow:0 7px 28px rgba(0,0,0,.16);display:flex;flex-direction:column;overflow:hidden;opacity:0;transform:translateY(8px) scale(.96);pointer-events:none;transition:all .2s ease}
+.coach{position:fixed;bottom:4.2rem;right:.9rem;z-index:501;width:310px;height:460px;max-height:calc(100vh - 6rem);background:var(--cream);border:2px solid var(--border);border-radius:16px;box-shadow:0 7px 28px rgba(0,0,0,.16);display:flex;flex-direction:column;overflow:hidden;opacity:0;transform:translateY(8px) scale(.96);pointer-events:none;transition:all .2s ease}
 .coach.open{opacity:1;transform:translateY(0) scale(1);pointer-events:all}
-@media(max-width:360px){.coach{width:calc(100vw - 1.2rem);right:.6rem}}
+@media(max-width:360px){.coach{width:calc(100vw - 1.2rem);right:.6rem;height:min(460px, calc(100vh - 8.5rem));max-height:calc(100vh - 8.5rem)}}
 .coh{background:var(--choc);color:var(--cream);padding:.55rem .85rem;display:flex;align-items:center;gap:.45rem;flex-shrink:0}
 .co-av{font-size:1.3rem;line-height:1;animation:bounce 2.5s ease-in-out infinite}
 .co-name{font-family:'Playfair Display',serif;font-size:.85rem;font-weight:600;flex:1}
@@ -390,7 +390,7 @@ body{font-family:'Lato',sans-serif;background:var(--cream);color:var(--ink);min-
 .food-pick:hover{background:var(--choc);color:var(--cream)}
 /* ── MODAL EDIT BUTTON ── */
 /* ── MOBILE ── */
-@media(max-width:420px){.app-header{padding:.7rem .85rem .6rem}.tbtn{font-size:.6rem;padding:.45rem .4rem}.coach{width:calc(100vw - 1rem);right:.5rem}.thbtn{width:22px;height:22px}}
+@media(max-width:420px){.app-header{padding:.7rem .85rem .6rem}.tbtn{font-size:.6rem;padding:.45rem .4rem}.coach{width:calc(100vw - 1rem);right:.5rem;height:min(460px, calc(100vh - 8.5rem));max-height:calc(100vh - 8.5rem)}.thbtn{width:22px;height:22px}}
 button,a{-webkit-tap-highlight-color:transparent}
 
 /* ── MOCHI BOT MESSAGES WITH AVATAR ── */
@@ -420,7 +420,7 @@ button,a{-webkit-tap-highlight-color:transparent}
   /* FAB higher (above tab bar) */
   .fab{bottom:5rem!important;right:.8rem!important;}
   /* Coach panel full-width on mobile */
-  .coach{width:calc(100vw - .8rem)!important;right:.4rem!important;bottom:5rem!important;}
+  .coach{width:calc(100vw - .8rem)!important;right:.4rem!important;bottom:5rem!important;height:min(460px, calc(100vh - 8.5rem))!important;max-height:calc(100vh - 8.5rem)!important;}
   /* Modal full-screen on mobile */
   .ov{align-items:flex-end!important;}
   .modal{width:100%!important;max-width:100%!important;max-height:96vh!important;
@@ -438,6 +438,7 @@ button,a{-webkit-tap-highlight-color:transparent}
 @media(display-mode:standalone){
   .tabs{padding-bottom:env(safe-area-inset-bottom,.5rem);}
   body{padding-top:env(safe-area-inset-top,0);}
+  .coach{bottom:calc(5rem + env(safe-area-inset-bottom,0))!important;height:min(460px, calc(100vh - 9rem - env(safe-area-inset-bottom,0)))!important;max-height:calc(100vh - 9rem - env(safe-area-inset-bottom,0))!important;}
 }
 </style>
 </head>
@@ -3012,5 +3013,4 @@ function installApp(){
 })();
 </script>
 </body>
-</html>  
- 
+</html>
