@@ -695,11 +695,12 @@ button,a{-webkit-tap-highlight-color:transparent}
   </div>
   <div class="co-msgs" id="co-msgs"><div class="co-msg bot" style="display:flex;gap:.5rem;align-items:flex-start"><img src="" data-mochi="1" class="co-bot-av" alt="Mochi"><div class="co-bot-text">🐱 Je suis Mochi, ton assistante Bari Codex.<br><br>⚠️ <em>Je ne suis ni médecin ni nutritionniste. Consulte toujours ton équipe soignante pour tes décisions médicales.</em><br><br>Mon rôle : organiser tes repas et suivre ta courbe de poids 🌸<br><br>🔑 <em>Pour l'IA, entre ta clé Groq dans ⚙ Objectifs (gratuit : console.groq.com)</em></div></div></div>
   <div class="co-sugg">
-    <button class="co-s" data-q="Total aujourd'hui">📊 Mon bilan</button>
+    <button class="co-s" onclick="event.stopPropagation();showBilan()">📊 Mon bilan</button>
     <button class="co-s" data-q="Je suis au restaurant, que choisir ?">🍽 Au resto</button>
     <button class="co-s" data-q="Comment équilibrer le reste de ma journée ?">⚖ Équilibrer</button>
     <button class="co-s" data-q="Quelles vitamines post-sleeve ?">💊 Vitamines</button>
     <button class="co-s" data-q="Conseils hydratation post-sleeve">💧 Eau</button>
+    <button class="co-s" onclick="event.stopPropagation();resetBilan()">🔄 Reset</button>
   </div>
   <div style="display:flex;gap:.4rem;padding:.4rem .6rem;border-top:1px solid var(--border)"><button onclick="event.stopPropagation();showBilan()" style="flex:1;padding:.4rem;background:var(--lavender);border:1px solid var(--border);border-radius:8px;font-size:.72rem;cursor:pointer">📊 Mon bilan</button><button onclick="event.stopPropagation();resetBilan()" style="flex:1;padding:.4rem;background:var(--lavender);border:1px solid var(--border);border-radius:8px;font-size:.72rem;cursor:pointer">🔄 Reset bilan</button></div>
     <div class="co-inp"><input type="text" class="coinput" id="co-in" placeholder="Posez votre question…"><button class="cosend" id="co-send">Envoyer</button></div>
@@ -742,7 +743,7 @@ let curFilt='all',pickFilt='all',wkOff=0,planSelDay=dk(new Date()),editId=null,c
 let sOpts={nb:{brek:3,lunch:3,diner:3},hiv:(new Date().getMonth()>=9||new Date().getMonth()<=2)};
 
 function load(k,d){try{return JSON.parse(localStorage.getItem(k)||'null')||d;}catch(e){return d;}}
-function save(k,v){localStorage.setItem(k,JSON.stringify(v));}
+function save(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){console.warn('Bari Codex: stockage plein ou indisponible',e);}}
 function allR(){return[...BUILTIN,...CR];}
 function byId(id){return allR().find(r=>r.id===id)||null;}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -763,7 +764,11 @@ function wkDates(off){
   mon.setDate(now.getDate()-(dow===0?6:dow-1)+off*7);
   return Array.from({length:7},(_,i)=>{const d=new Date(mon);d.setDate(mon.getDate()+i);return d;});
 }
-function dk(d){return d.toISOString().slice(0,10);}
+function dk(d){
+  // Use local timezone (not UTC) to avoid midnight rollover bug
+  var y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');
+  return y+'-'+m+'-'+day;
+}
 function isToday(d){return dk(d)===dk(new Date());}
 
 // PLANNER HELPERS
@@ -795,7 +800,15 @@ function dayN(ds){return SLOTS.reduce((s,sl)=>s+getMeals(ds,sl).length,0);}
 
 // HEADER
 function renderHdr(){
-  const ds=dk(new Date()),kc=dayVal(ds,'kcal'),pr=dayVal(ds,'prot'),cb=dayVal(ds,'carbs'),fb=dayVal(ds,'fiber'),me=dayN(ds),pc=Math.round(kc/G.kcal*100);
+  const ds=dk(new Date());
+  // Planner totals (meals added via "+ Jour")
+  let kc=dayVal(ds,'kcal'),pr=dayVal(ds,'prot'),cb=dayVal(ds,'carbs'),fb=dayVal(ds,'fiber'),me=dayN(ds);
+  // Journal totals (meals logged via Mochi chat) — only added if dates match (today)
+  if(typeof getDayTotals==='function'){
+    const jt=getDayTotals();
+    kc+=jt.kcal; pr+=jt.prot; cb+=jt.carbs; fb+=jt.fiber; me+=jt.count;
+  }
+  const pc=Math.round(kc/G.kcal*100);
   txt('h-kc',kc+' kcal');txt('h-pr',pr+'g');
   txt('h-cb',cb>0?cb+'g':'—');txt('h-fb',fb>0?fb+'g':'—');
   txt('h-me',me);txt('h-pc',pc+'%');
@@ -828,7 +841,12 @@ document.querySelectorAll('.tbtn').forEach(b=>{
 });
 
 // RECIPES
-on('rsearch','input',()=>renderRecs());
+// Debounced recipe search (100ms) to avoid rerendering on every keystroke
+var _rrTimer=null;
+on('rsearch','input',function(){
+  clearTimeout(_rrTimer);
+  _rrTimer=setTimeout(renderRecs,100);
+});
 updateChipCounts();
 el('rchips').addEventListener('click',e=>{
   const b=e.target.closest('[data-f]');if(!b)return;
@@ -904,8 +922,8 @@ on('m-plan','click',()=>{
 });
 
 // PLANNER
-on('btn-pw','click',()=>{wkOff--;renderPlan();renderGroc();});
-on('btn-nw','click',()=>{wkOff++;renderPlan();renderGroc();});
+on('btn-pw','click',()=>{wkOff=Math.max(-8,wkOff-1);renderPlan();renderGroc();});
+on('btn-nw','click',()=>{wkOff=Math.min(4,wkOff+1);renderPlan();renderGroc();});
 on('btn-clear','click',()=>{
   wkDates(wkOff).forEach(d=>{const ds=dk(d);SLOTS.forEach(s=>{PL[pk(ds,s)]=[];});});commitPL();
 });
@@ -1415,10 +1433,10 @@ function renderGroc(){
       kws:['poulet','dinde','saumon','thon','cabillaud','tilapia','crevette','sardine','maquereau',
            'boeuf','veau','porc','agneau','steak','viande hachée','viande',
            'tofu','tempeh','edamame','seitan',
-           
+           'jambon','jambon blanc','prosciutto','pancetta',
            'turkey','chicken','tuna','ground','haché',
-           'fairlife','core power','protéine en poudre','whey','caséine',
-           'thon','saumon fumé'],
+           'fairlife','core power','protéine en poudre','whey','caséine','prot ',
+           'thon','saumon fumé','blanc d\'oeuf','blancs d\'oeufs','oeuf'],
     },
     {
       name:'🥦 Fruits & Légumes',
@@ -1429,7 +1447,8 @@ function renderGroc(){
            'topinambour','zoodle','courgetti','persil','ciboulette','basilic','menthe',
            'thym','romarin','coriandre','gingembre','citron','lime',
            'banane','pomme','fraise','myrtille','mangue','orange','poire',
-           'framboise','ananas','pêche','abricot','kiwi','raisin','grenade','açaï','fruit'],
+           'framboise','ananas','pêche','abricot','kiwi','raisin','grenade','açaï','fruit',
+           'compote','purée de fruits','jus de fruits'],
     },
     {
       name:'🥛 Produits laitiers & Œufs',
@@ -1442,7 +1461,8 @@ function renderGroc(){
       name:'🍞 Boulangerie & Féculents',
       kws:['naan','pita','tortilla','baguette','pain','brioche','speculoos','galette de riz',
            'biscuit','crackers','cracker','wrap','feuilles de brick','brick','bagel',
-           'riz','pâtes','quinoa','semoule','orge',],
+           'riz','pâtes','quinoa','semoule','orge',
+           'farine','avoine','flocons','muesli','granola','son d\'avoine'],
     },
   ];
 
@@ -1467,7 +1487,7 @@ function renderGroc(){
   Object.values(grp).forEach(arr=>arr.sort((a,b)=>a.name.localeCompare(b.name,'fr')));
 
   let html='';
-  const catOrder=['🥦 Fruits & Légumes','🥛 Produits laitiers & Œufs','🍞 Boulangerie & Féculents','🛒 Épicerie & Divers'];
+  const catOrder=['🥩 Protéines','🥦 Fruits & Légumes','🥛 Produits laitiers & Œufs','🍞 Boulangerie & Féculents','🛒 Épicerie & Divers'];
   catOrder.forEach(catName=>{
     const its=grp[catName];if(!its||!its.length)return;
     html+='<div class="gsec"><div class="gsec-h">'+esc(catName)+'</div>'
@@ -1581,7 +1601,10 @@ RECETTE: ${title} | ${kcal} kcal | ${prot}g prot | ${carbs}g carbs | ${fat}g lip
 CRITÈRES: Calories 150-350kcal (max 400 dîner), Protéines min 15g, Sucres max 10g, Lipides max 15g
 Réponds UNIQUEMENT en JSON valide sans backticks: {"statut":"conforme"|"à_modifier"|"déconseillé","score":0-100,"problèmes":[],"modifications":[],"commentaire":"...","kcal_suggéré":null|number,"prot_suggéré":null|number}`;
   try{
-    const resp=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+APIKEY},body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:800,messages:[{role:'user',content:prompt}]})});
+    const _ctrl=new AbortController();
+    const _tid=setTimeout(()=>_ctrl.abort(),15000); // 15s timeout
+    const resp=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',signal:_ctrl.signal,headers:{'Content-Type':'application/json','Authorization':'Bearer '+APIKEY},body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:800,messages:[{role:'user',content:prompt}]})});
+    clearTimeout(_tid);
     const data=await resp.json();if(bld)bld.style.display='none';
     const raw=((data.choices&&data.choices[0])?data.choices[0].message.content:'').replace(/```json|```/g,'').trim();
     let res;try{res=JSON.parse(raw);}catch(e){if(bc)bc.innerHTML='<div style="color:var(--red);font-size:.76rem">Erreur d\'analyse.</div>';return;}
@@ -1754,137 +1777,36 @@ async function sendCoach(){
   coachHist.push({role:'user',content:msg});
   if(coachHist.length>20)coachHist=coachHist.slice(-20);
   try{
-    const resp=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+APIKEY},body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:400,messages:[{role:'system',content:SYSP},...coachHist]})});
+    const _ctrl=new AbortController(),_tid=setTimeout(()=>_ctrl.abort(),15000);
+    const resp=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',signal:_ctrl.signal,headers:{'Content-Type':'application/json','Authorization':'Bearer '+APIKEY},body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:400,messages:[{role:'system',content:SYSP},...coachHist]})});
+    clearTimeout(_tid);
     const data=await resp.json();typing.remove();
     const reply=(data.choices&&data.choices[0])?data.choices[0].message.content.trim():'';
     coachHist.push({role:'assistant',content:reply});
     const div=document.createElement('div');div.className='co-msg bot';div.textContent=reply;
     msgs.appendChild(div);msgs.scrollTop=msgs.scrollHeight;
-  }catch(e){typing.remove();const div=document.createElement('div');div.className='co-msg bot';div.textContent=APIKEY?'Désolée, problème de connexion. Vérifiez votre clé API dans ⚙ Objectifs 🐱':'🔑 Clé Groq manquante ! Obtenez-la gratuitement sur console.groq.com, puis ajoutez-la dans ⚙ Objectifs 🐱';msgs.appendChild(div);}
-}
-
-// ── REMINDERS SYSTEM ──────────────────────────────────────────────
-let reminders=load('bari_reminders',{
-  water:{times:['08:00','10:30','13:00','15:30','17:00','19:30']},
-  vitamins:{times:['08:00','13:00','20:00']}
-});
-let firedToday=load('bari_fired_'+dk(new Date()),[]);
-
-function renderReminderUI(){
-  function renderTimes(type,containerId){
-    const c=el(containerId);if(!c)return;
-    const times=reminders[type].times;
-    c.innerHTML=times.map((t,i)=>
-      '<div style="display:flex;align-items:center;gap:.4rem">'
-      +'<input type="time" value="'+t+'" data-rtype="'+type+'" data-ri="'+i+'" style="flex:1;padding:.3rem .5rem;border:1.5px solid var(--border);border-radius:5px;font-family:\'DM Mono\',monospace;font-size:.82rem;background:var(--cream);outline:none">'
-      +'<button data-rdel="'+type+'" data-ri="'+i+'" style="background:none;border:none;color:var(--muted);font-size:.85rem;cursor:pointer;padding:.1rem .3rem">✕</button>'
-      +'</div>'
-    ).join('');
+  }catch(e){typing.remove();const div=document.createElement('div');div.className='co-msg bot';
+    const isTimeout=e&&e.name==='AbortError';
+    div.textContent=isTimeout?'⏱ Délai dépassé — Groq met trop de temps à répondre. Réessaie dans un moment 🐱':
+      (APIKEY?'Désolée, problème de connexion. Vérifie ta clé API dans ⚙ Objectifs 🐱':'🔑 Clé Groq manquante — entre-la dans ⚙ Objectifs (gratuit sur console.groq.com)');
+    msgs.appendChild(div);msgs.scrollTop=msgs.scrollHeight;
   }
-  renderTimes('water','water-times');
-  renderTimes('vitamins','vitamin-times');
-  // Notification permission status
-  const ns=el('notif-status');
-  if(ns&&'Notification' in window){
-    if(Notification.permission==='granted') ns.innerHTML='<span style="color:var(--green)">✓ Notifications activées</span>';
-    else if(Notification.permission==='denied') ns.innerHTML='<span style="color:var(--red)">✗ Notifications bloquées — autorisez-les dans les paramètres du navigateur</span>';
-    else ns.innerHTML='<span style="color:var(--gold)">⚠ Notifications en attente d\'autorisation</span>';
-  }
-}
-
-on('btn-notif-perm','click',async()=>{
-  if(!('Notification' in window)){toast('Notifications non supportées par ce navigateur','');return;}
-  const perm=await Notification.requestPermission();
-  renderReminderUI();
-  if(perm==='granted') toast('🔔 Notifications activées ! Mochi vous contactera aux heures configurées.','ok');
-  else toast('Notifications refusées. Activez-les dans les paramètres du navigateur.','');
-});
-
-// Add / remove reminder times
-on('btn-add-water','click',()=>{reminders.water.times.push('12:00');renderReminderUI();});
-on('btn-add-vit','click',()=>{reminders.vitamins.times.push('12:00');renderReminderUI();});
-
-document.addEventListener('change',e=>{
-  const inp=e.target.closest('[data-rtype]');if(!inp)return;
-  const i=parseInt(inp.dataset.ri);
-  if(inp.dataset.rtype==='water') reminders.water.times[i]=inp.value;
-  else reminders.vitamins.times[i]=inp.value;
-});
-document.addEventListener('click',e=>{
-  const del=e.target.closest('[data-rdel]');if(!del)return;
-  const i=parseInt(del.dataset.ri);
-  if(del.dataset.rdel==='water') reminders.water.times.splice(i,1);
-  else reminders.vitamins.times.splice(i,1);
-  renderReminderUI();
-});
-
-on('btn-save-reminders','click',()=>{
-  save('bari_reminders',reminders);
-  const b=el('btn-save-reminders');if(b){b.textContent='✓ Rappels enregistrés !';setTimeout(()=>{b.textContent='✓ Enregistrer les rappels';},2000);}
-  toast('🔔 Rappels sauvegardés !','ok');
-});
-
-// Check reminders every minute
-let lastMinuteChecked='';
-setInterval(()=>{
-  const now=new Date();
-  const hhmm=now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0');
-  if(hhmm===lastMinuteChecked)return;
-  lastMinuteChecked=hhmm;
-  const todayKey='bari_fired_'+dk(now);
-  let fired=load(todayKey,[]);
-  function maybeNotify(key,msg,type){
-    if(fired.includes(key))return;
-    fired.push(key);save(todayKey,fired);
-    toast(msg,type);
-    // Show Mochi badge
-    const fb=el('fbadge');if(fb){fb.style.display='flex';fb.textContent='!';}
-    // Browser notification
-    if('Notification' in window&&Notification.permission==='granted'){
-      try{new Notification('Bari Codex — Mochi 🐱',{body:msg,icon:'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🐱</text></svg>'});}catch(e){}
-    }
-  }
-  reminders.water.times.forEach(t=>{
-    if(t===hhmm) maybeNotify('w_'+hhmm,'💧 C\'est l\'heure de boire de l\'eau ! Visez un petit verre 🐱','water');
-  });
-  reminders.vitamins.times.forEach(t=>{
-    if(t===hhmm) maybeNotify('v_'+hhmm,'💊 N\'oubliez pas vos vitamines post-sleeve ! 🐱','vitamin');
-  });
-},30000);
-
-// Init reminders UI when profil is shown - called directly in renderProf below
-// (do NOT use _origRenderProf pattern - causes infinite recursion due to hoisting)
-
-
-
-// ═══════════════════════════════════════════════════════
-// BILAN / JOURNAL JOURNALIER
-// ═══════════════════════════════════════════════════════
-function getTodayKey(){ return 'barilog_'+new Date().toISOString().slice(0,10); }
-
-function getTodayLog(){
-  try{ return JSON.parse(localStorage.getItem(getTodayKey())||'[]'); }catch(e){ return []; }
 }
 
 function saveTodayLog(log){
-  localStorage.setItem(getTodayKey(), JSON.stringify(log));
+  // No-op kept for compatibility; entries are now added one at a time via saveToJournal.
+  localStorage.setItem(todayKey(), JSON.stringify(log));
 }
 
 function addCoachBilanEntry(desc, kcal, prot, carbs, fat){
-  var log = getTodayLog();
-  log.push({
-    ts: Date.now(), src:'mochi', desc:desc,
-    kcal:Math.round(kcal||0), prot:Math.round(prot||0),
-    carbs:Math.round(carbs||0), fat:Math.round(fat||0)
-  });
-  saveTodayLog(log);
+  saveToJournal(kcal, prot, carbs, 0, desc);
   renderHdr();
 }
 
 window.resetBilan=resetBilan;
 function resetBilan(){
   if(!confirm('Réinitialiser le bilan du jour ?')) return;
-  localStorage.removeItem(getTodayKey());
+  localStorage.removeItem(todayKey());
   renderHdr();
   toast('Bilan réinitialisé ✓','ok');
 }
@@ -1892,31 +1814,7 @@ function resetBilan(){
 window.showBilan=showBilan;
 function showBilan(){
   var _c=el("coach");if(_c&&!_c.classList.contains("open"))_c.classList.add("open");
-  var log = getTodayLog();
-  var msgs = el('co-msgs');
-  if(!msgs) return;
-  if(!log.length){
-    var d=document.createElement('div');
-    d.className='co-msg bot';
-    d.textContent='📊 Bilan du jour : aucun aliment enregistré pour aujourd\'hui.';
-    msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;
-    return;
-  }
-  var totals={kcal:0,prot:0,carbs:0,fat:0};
-  var items=[];
-  log.forEach(function(e){
-    totals.kcal+=e.kcal||0;totals.prot+=e.prot||0;
-    totals.carbs+=e.carbs||0;totals.fat+=e.fat||0;
-    items.push('• '+e.desc+' → '+e.kcal+' kcal');
-  });
-  var G=load('bari_goals',{});
-  var div=document.createElement('div');
-  div.className='co-msg bot';
-  div.textContent='📊 Bilan du jour :\n'+items.join('\n')
-    +'\n\nTOTAL: '+totals.kcal+' kcal | P:'+totals.prot+'g | G:'+totals.carbs+'g | L:'+totals.fat+'g'
-    +'\nObjectif: '+(G.kcal||1200)+' kcal | '+(G.prot||80)+'g prot'
-    +(totals.kcal>(G.kcal||1200)?'\n⚠️ Objectif calorique dépassé':'\n✓ Dans les objectifs');
-  msgs.appendChild(div);msgs.scrollTop=msgs.scrollHeight;
+  showDayTotal();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2079,6 +1977,23 @@ var NDB={
   'bok choy':[1.2,1,1.5,0.2],'edamame':[8,5,11,5],
   'pois snap':[7.6,2.6,3.3,0.1],'petits pois':[11,5,5,0.4],
 
+  // Post-sleeve staples
+  'skyr':[4,0,11,0.2],'fromage blanc 0':[3.5,0,8,0.2],'cottage cheese':[3.2,0,11,4.3],
+  'ricotta':[3,0,7,13],'jambon blanc':[0.5,0,18,3.5],'jambon':[0.5,0,18,3.5],
+  'dinde':[0,0,29,2.5],'saumon fume':[0,0,25,12],
+  'compote':[11,1.2,0.3,0.1],'compote sans sucre':[8,1.5,0.3,0.1],
+  'soja':[1.6,6,17,9],'tofu ferme':[1.5,0.3,8,4.5],
+  'edamame cuit':[8,5,11,5],'pois chiches cuits':[17,5,9,2.5],
+  'lentilles cuites':[14,4,9,0.4],'haricots cuits':[14,6,8,0.5],
+  'proteines de pois':[3,2,80,6],'whey':[4,0,80,5],
+  'miel':[82,0,0.3,0],'sirop erable':[67,0,0,0],
+  'graines de lin':[2,27,18,42],'graines de chanvre':[8,4,32,49],
+  'tahini':[23,9,17,54],'beurre damandes':[19,10,21,56],
+  'sauce soja':[4,0,8,0],'vinaigre balsamique':[17,0,0.5,0],
+  'creme legere':[3.7,0,2.5,12],'creme fraiche':[2.8,0,2.4,30],
+  'parmesan rape':[0,0,33,29],'emmental':[0,0,28,29],'cheddar':[0,0,25,33],
+  'pain grille':[50,3,8,3],'galette riz':[78,1,7,1],
+
 };
 
 function normN(s){
@@ -2117,9 +2032,12 @@ function lookupNDB(name){
 function isMealMsg(msg){
   var lo=msg.toLowerCase();
   if(['mang','j ai pris','ce matin','ce midi','ce soir','mon repas','au dej','au diner'].some(function(w){return lo.includes(w);}))return true;
-  var stop=new Set(['bari','light','petit','diner','lunch','snack']);
+  if(/[\d]+\s*(?:g|gr|kg|ml|l|c[a\u00e0]s|tasse)\b/i.test(msg))return true;
+  var stop=new Set(['bari','light','petit','diner','lunch','snack','bowl','sauce','soupe']);
   return allR().some(function(r){
-    return r.title.toLowerCase().split(/[\s\-]+/).filter(function(w){return w.length>4&&!stop.has(w);}).some(function(w){return lo.includes(w);});
+    return r.title.toLowerCase().split(/[\s\-]+/)
+      .filter(function(w){return w.length>=4&&!stop.has(w);})
+      .some(function(w){return lo.includes(w);});
   });
 }
 
@@ -2127,69 +2045,82 @@ function parseMealMsg(msg){
   var lo=msg.toLowerCase();
   var result={exact:[],ambig:[],raw:[]};
 
-  // Parse raw quantities first
-  var qRx=/([\d]+(?:[.,][\d]+)?)\s*(grammes?|gr\b|g\b|kg|ml|l\b|cl|c[a\u00e0]s|tasse|tranch\w*|portions?)\s*(?:de\s+|d[\u2019']\s*)?([a-z\u00C0-\u024F][a-z\u00C0-\u024F\s]{2,28})/gi;
+  // FR→EN synonyms
+  var FR2EN={
+    'banane':'banana','bananes':'banana','chocolat':'chocolate',
+    'fraise':'strawberry','fraises':'strawberry','citrouille':'pumpkin',
+    'carotte':'carrot','carottes':'carrot','citron':'lemon',
+    'noisette':'hazelnut','coco':'coconut','myrtille':'blueberry',
+    'peche':'peach','peches':'peach','epices':'spice','diner':'dinner'
+  };
+  var loExp=lo;
+  Object.keys(FR2EN).forEach(function(fr){if(lo.includes(fr))loExp+=' '+FR2EN[fr];});
+
+  // Parse raw quantities
+  var qRx=/([\d]+(?:[.,][\d]+)?)\s*(grammes?|gr\b|g\b|kg|ml|l\b|cl|c[à\u00e0]s|tasse|tranch\w*|portions?)\s*(?:de\s+|d['\u2019]\s*)?([a-z\u00C0-\u024F][a-z\u00C0-\u024F\s]{2,28})/gi;
   var m;
   while((m=qRx.exec(msg))!==null){
     var unit=normN(m[2]).replace(/grammes?/g,'g').replace(/s$/,'');
     result.raw.push({name:m[3].trim(),amount:parseFloat(m[1].replace(',','.')),unit:unit});
   }
+
+  // rawTok: ingredient words to exclude from recipe matching
   var rawTok=new Set();
   result.raw.forEach(function(r){
-    r.name.toLowerCase().split(/\s+/).filter(function(w){return w.length>2;}).forEach(function(w){rawTok.add(w);});
+    r.name.toLowerCase().split(/\s+/).filter(function(w){return w.length>2;}).forEach(function(w){
+      rawTok.add(w); rawTok.add(normN(w));
+    });
   });
 
-  // Pre-compute word frequency across all recipes
-  // Only use words that appear in ≤3 recipes (discriminative)
+  // Build word→recipes index
+  var stop=new Set(['bari','petit','soupe','recette','style','version','base','avec','sans','soup','choco']);
   var wordRecipes={};
-  var stop=new Set(['bari','light','petit','diner','lunch','snack','bowl','wrap','sauce','soup',
-    'soupe','salade','recette','style','version','base','avec','sans']);
   allR().forEach(function(r){
     r.title.toLowerCase().split(/[\s\-]+/).forEach(function(w){
       var wn=normN(w);
-      if(wn.length<5||stop.has(wn)||rawTok.has(wn))return;
+      if(wn.length<4||stop.has(wn)||rawTok.has(wn))return;
       if(!wordRecipes[wn])wordRecipes[wn]=[];
       if(!wordRecipes[wn].find(function(x){return x.id===r.id;}))wordRecipes[wn].push(r);
     });
   });
 
-  // Match: score each recipe by how many of its discriminative words appear in msg
+  // Score each recipe using whole-word regex matching
   var scores={};
   Object.entries(wordRecipes).forEach(function(entry){
     var wn=entry[0],recs=entry[1];
-    if(!lo.includes(wn))return;
-    // Use this word for matching
+    var rx=new RegExp('(^|\\s|\\b)'+wn.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'($|\\s|\\b)','i');
+    if(!rx.test(loExp))return;
     recs.forEach(function(r){
-      if(!scores[r.id])scores[r.id]={r:r,score:0,words:[]};
-      scores[r.id].score+=recs.length<=2?3:recs.length<=5?1:0.3;
+      if(!scores[r.id])scores[r.id]={r:r,score:0,words:[],matchCount:0};
+      scores[r.id].score+=5/recs.length;
       scores[r.id].words.push(wn);
+      scores[r.id].matchCount++;
     });
   });
 
-  // Only keep recipes with score >= 1 (at least one semi-discriminative word)
+  // Multi-word match bonus
+  Object.values(scores).forEach(function(s){
+    if(s.matchCount>=3) s.score*=2.7;
+    else if(s.matchCount>=2) s.score*=1.8;
+  });
+
   var candidates=Object.values(scores).filter(function(s){return s.score>0;});
   candidates.sort(function(a,b){return b.score-a.score;});
-
   if(candidates.length===0)return result;
 
   var best=candidates[0];
-  var threshold=best.score*0.7;
+  var threshold=best.score*0.70;
   var topCandidates=candidates.filter(function(s){return s.score>=threshold;});
+
+  // Raw ingredients + too many ambiguous recipes → skip recipe matching
+  if(result.raw.length>0 && topCandidates.length>2) return result;
 
   if(topCandidates.length===1){
     result.exact.push(topCandidates[0].r);
-  } else if(topCandidates.length<=8){
-    // Group as ambiguous — let user pick
-    result.ambig.push({
-      term: topCandidates[0].words[0]||'recette',
-      recipes: topCandidates.map(function(s){return s.r;})
-    });
+  } else if(topCandidates.length<=6){
+    result.ambig.push({term:topCandidates[0].words[0]||'recette',recipes:topCandidates.map(function(s){return s.r;})});
   } else {
-    // Too many matches — ask user to be more specific
-    result.ambig.push({
-      term: topCandidates[0].words[0]||'recette',
-      recipes: topCandidates.slice(0,6).map(function(s){return s.r;})
-    });
+    result.ambig.push({term:topCandidates[0].words[0]||'recette',recipes:topCandidates.slice(0,6).map(function(s){return s.r;})});
   }
   return result;
 }
@@ -2254,13 +2185,11 @@ function showMealSummary(exact,rawM){
   else if(pct>85)txt+='\n\u26A0 Proche de la limite calorique.';
   else txt+='\n\u2713 Bien \u00e9quilibr\u00e9 \uD83D\uDC31';
   
-  // Log to daily journal
+  // Log to unified daily journal (single call)
   if(exact.length||rawM){
-    var logEntry={name:exact.length?exact.map(function(r){return r.title;}).join(', '):'Ingrédients',kcal:Math.round(kcal),prot:Math.round(prot),carbs:Math.round(carbs),fiber:Math.round(fiber),time:new Date().toLocaleTimeString('fr',{hour:'2-digit',minute:'2-digit'})};
-    addToDayLog(logEntry);
+    var label=exact.length?exact[0].title:(rawM?'Ingrédients':'Repas');
+    saveToJournal(Math.round(kcal),Math.round(prot),Math.round(carbs),Math.round(fiber),label);
   }
-  var label=exact.length?exact[0].title:(rawM?'Ingr\u00e9dients':'Repas');
-  saveToJournal(Math.round(kcal),Math.round(prot),Math.round(carbs),Math.round(fiber),label);
   addBotMsg(txt,true);
 }
 
@@ -2289,32 +2218,15 @@ el('co-msgs').addEventListener('click',function(e){
 // ═══════════════════════════════════════════════════════════════
 
 
+// LEGACY ALIASES — getDayLog/addToDayLog now delegate to the unified journal (todayKey/saveToJournal)
 function getDayLog(){
-  try{return JSON.parse(localStorage.getItem(todayKey())||'[]');}catch(e){return[];}
+  return getDayTotals().items;
 }
 function addToDayLog(entry){
-  var log=getDayLog();
-  log.push(entry);
-  localStorage.setItem(todayKey(),JSON.stringify(log));
+  saveToJournal(entry.kcal, entry.prot, entry.carbs, entry.fiber, entry.name);
 }
 function showDayBilan(){
-  var log=getDayLog();
-  if(!log.length){addBotMsg('Aucun repas enregistré aujourd\'hui. Dis-moi ce que tu as mangé !');return;}
-  var kcal=0,prot=0,carbs=0,fiber=0;
-  var lines=[];
-  log.forEach(function(e,i){
-    lines.push((i+1)+'. '+e.name+' — '+e.kcal+'kcal · '+e.prot+'g prot');
-    kcal+=e.kcal;prot+=e.prot;carbs+=e.carbs||0;fiber+=e.fiber||0;
-  });
-  var goal=G.kcal||1200,pct=Math.round(kcal/goal*100);
-  var txt='📊 Bilan du jour ('+log.length+' repas) :\n\n'+lines.join('\n')+'\n\n';
-  txt+='TOTAL : '+Math.round(kcal)+' kcal · '+Math.round(prot)+'g prot · '+Math.round(carbs)+'g glucides\n';
-  txt+=pct+'% de l objectif ('+goal+' kcal)';
-  var protGoal=G.prot||80;
-  if(prot<protGoal*0.5)txt+='\n⚠ Protéines insuffisantes (objectif : '+protGoal+'g)';
-  else if(pct>=95)txt+='\n⚠ Objectif calorique presque atteint !';
-  else txt+='\n✓ Bonne journée ! Il te reste '+(goal-Math.round(kcal))+' kcal.';
-  addBotMsg(txt,true);
+  showDayTotal();
 }
 
 function handleCoachSend(){
@@ -2384,7 +2296,7 @@ on('co-in','keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefau
 // ═══════════════════════════════════════════════════════════
 // JOURNAL JOURNALIER — macros cumulées
 // ═══════════════════════════════════════════════════════════
-function todayKey(){return 'bari_journal_'+new Date().toISOString().slice(0,10);}
+function todayKey(){return 'bari_journal_'+dk(new Date());}
 
 function saveToJournal(kcal,prot,carbs,fiber,label){
   var key=todayKey();
@@ -2599,13 +2511,13 @@ el('p-dchir').addEventListener('change',calcPostOpPhase);
 var VIT_KEY='bari_vit_'+new Date().toISOString().slice(0,7); // monthly key
 
 function logVitamin(){
-  var today=new Date().toISOString().slice(0,10);
+  var today=dk(new Date());
   var log=JSON.parse(localStorage.getItem(VIT_KEY)||'{}');
   log[today]=true;
   localStorage.setItem(VIT_KEY,JSON.stringify(log));
   var days=Object.keys(log).length;
   var streak=0,d=new Date();
-  while(log[d.toISOString().slice(0,10)]){streak++;d.setDate(d.getDate()-1);}
+  while(log[dk(d)]){streak++;d.setDate(d.getDate()-1);}
   addBotMsg('\u2705 Vitamines enregistr\u00e9es pour aujourd\'hui ! Streak : '+streak+' jour'+(streak>1?'s':'')+' \ud83d\udcaa\n\nRappel : calcium + D3, B12, fer (si besoin), multivitamines \u2014 \u00e0 vie post-sleeve.');
 }
 
@@ -2613,26 +2525,7 @@ function logVitamin(){
 
 
 // ── Weight celebration ───────────────────────────────────
-function checkWeightMilestone(newKg){
-  if(!PROF||!PROF.sw)return;
-  var sw=parseFloat(PROF.sw),tw=parseFloat(PROF.tw)||0;
-  var lost=sw-newKg;
-  if(lost<=0)return;
-  var ewl=tw>0?Math.round(lost/(sw-tw)*100):null;
-  var msgs=[];
-  [5,10,15,20,25,30].forEach(function(kg){
-    if(lost>=kg&&(!WL.length||sw-(WL[WL.length-1].w||sw)< kg))msgs.push('\ud83c\udf89 Bravo ! '+kg+'kg perdus !');
-  });
-  if(ewl)[25,50,75,100].forEach(function(pct){
-    if(ewl>=pct&&ewl<pct+5)msgs.push('\u2b50 '+pct+'% EWL atteint \u2014 jalon majeur !');
-  });
-  if(msgs.length){
-    setTimeout(function(){
-      msgs.forEach(function(msg){toast(msg,'ok');});
-      addBotMsg('\ud83c\udf89 '+msgs.join(' ')+'\nTu as perdu '+Math.round(lost*10)/10+'kg depuis ton d\u00e9but'+(ewl?' ('+ewl+'% EWL)':'')+'.\n\nContinue comme \u00e7a, chaque kilo compte ! \ud83d\udc31\ud83d\udc95');
-    },800);
-  }
-}
+
 // Hook into weight save
 var origAddW=el('btn-addw').onclick;
 el('btn-addw').addEventListener('click',function(){
@@ -2677,7 +2570,7 @@ var VIT_KEY='bari_vitamins';
 var vitLog=JSON.parse(localStorage.getItem(VIT_KEY)||'[]');
 
 function logVitamins(){
-  var today=new Date().toISOString().slice(0,10);
+  var today=dk(new Date());
   if(vitLog.includes(today)){
     addBotMsg('Tu as déjà enregistré tes vitamines pour aujourd\'hui ! 💊 Continue comme ça !');
     return;
@@ -2688,7 +2581,7 @@ function logVitamins(){
   // Calculate streak
   var streak=0,d=new Date();
   while(true){
-    var ds=d.toISOString().slice(0,10);
+    var ds=dk(d);
     if(!vitLog.includes(ds))break;
     streak++;d.setDate(d.getDate()-1);
   }
@@ -2702,12 +2595,12 @@ function logVitamins(){
 function getVitaminStreak(){
   var streak=0,d=new Date();
   while(true){
-    var ds=d.toISOString().slice(0,10);
+    var ds=dk(d);
     if(!vitLog.includes(ds))break;
     streak++;d.setDate(d.getDate()-1);
   }
   var last7=[],now=new Date();
-  for(var i=6;i>=0;i--){var dd=new Date(now);dd.setDate(now.getDate()-i);last7.push(dd.toISOString().slice(0,10));}
+  for(var i=6;i>=0;i--){var dd=new Date(now);dd.setDate(now.getDate()-i);last7.push(dk(dd));}
   return{streak:streak,last7:last7,taken:vitLog};
 }
 
